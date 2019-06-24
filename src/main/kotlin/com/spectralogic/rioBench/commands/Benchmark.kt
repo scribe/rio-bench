@@ -70,12 +70,12 @@ class Benchmark : CliktCommand(help = "Run the benchmark suite", name = "benchma
     }
 
     inner class TimedRioClient(private val host: String, private val credentials: UserLoginCredentials) {
-        private var now: Instant = Instant.now()
+        private var lastCreated: Instant = Instant.now()
         var rioClient: RioClient =
             runBlocking { createRioClient(host, createRioAuthClient(host).createToken(credentials).token) }
             get() {
-                return if (Instant.now().isAfter(now.plusSeconds(3000))) {
-                    now = Instant.now()
+                return if (Instant.now().isAfter(lastCreated.plusSeconds(1200))) {
+                    lastCreated = Instant.now()
                     field =
                         runBlocking { createRioClient(host, createRioAuthClient(host).createToken(credentials).token) }
                     field
