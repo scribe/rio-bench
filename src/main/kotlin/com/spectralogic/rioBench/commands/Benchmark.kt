@@ -28,9 +28,12 @@ import com.spectralogic.escapepod.devintegration.createRioAuthClient
 import com.spectralogic.escapepod.devintegration.createRioClient
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import java.net.URI
 import java.time.Instant
 import kotlin.math.pow
@@ -47,41 +50,49 @@ class Benchmark : CliktCommand(help = "Run the benchmark suite", name = "benchma
         .required()
 
     override fun run() {
+        val itemSize: Long = size * (1024.0.pow(units)).roundToLong()
+        val timedRioClient = TimedRioClient(host, UserLoginCredentials("spectra", "spectra"))
         runBlocking {
-            val timedRioClient = TimedRioClient(host, UserLoginCredentials("spectra", "spectra"))
-            val itemSize: Long = size * (1024.0.pow(units)).roundToLong()
-            (0 until jobs).map { job ->
-                (0 until number).map { file ->
-                    FileToArchive(
-                        "$job-$file-${Instant.now().toEpochMilli()}",
-                        URI.create("aToZSequence://f"),
-                        itemSize
-                    )
-                }.toList()
-            }
+            LongRange(0, jobs)
+                .asSequence()
+                .map { job ->
+                    LongRange(0, number)
+                        .asSequence()
+                        .map { file ->
+                            FileToArchive(
+                                "$job-$file-${Instant.now().toEpochMilli()}",
+                                URI.create("aToZSequence://f"),
+                                itemSize
+                            )
+                        }
+                }
                 .map { fileToArchive ->
-                    GlobalScope.launch (IO) {
-                        timedRioClient.rioClient.archiveFiles(broker, FilesToArchive(fileToArchive))
+                    GlobalScope.launch {
+                        timedRioClient.acquireRioClient().archiveFiles(broker, FilesToArchive(fileToArchive.toList()))
                     }
                 }
+                .toList()
                 .joinAll()
         }
         echo("Finished sending jobs")
     }
 
     inner class TimedRioClient(private val host: String, private val credentials: UserLoginCredentials) {
-        private var lastCreated: Instant = Instant.now()
-        var rioClient: RioClient =
-            runBlocking { createRioClient(host, createRioAuthClient(host).createToken(credentials).token) }
-            get() {
-                return if (Instant.now().isAfter(lastCreated.plusSeconds(1200))) {
+        private val mutex = Mutex()
+        private var lastCreated: Instant = Instant.MIN
+        private lateinit var rioClient: RioClient
+
+        suspend fun acquireRioClient(): RioClient {
+            try {
+                mutex.lock()
+                if (Instant.now().isAfter(lastCreated.plusSeconds(3000))) {
                     lastCreated = Instant.now()
-                    field =
-                        runBlocking { createRioClient(host, createRioAuthClient(host).createToken(credentials).token) }
-                    field
-                } else {
-                    field
+                    rioClient = createRioClient(host, createRioAuthClient(host).createToken(credentials).token)
                 }
+            } finally {
+                mutex.unlock()
             }
+            return rioClient
+        }
     }
 }
