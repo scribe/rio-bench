@@ -60,7 +60,7 @@ class Benchmark : CliktCommand(help = "Run the benchmark suite", name = "benchma
     }
 
     fun CoroutineScope.jobNumber(): ReceiveChannel<Long> = produce {
-        LongRange(0, jobs).forEach {
+        LongRange(1, jobs).forEach {
             send(it)
         }
     }
@@ -71,7 +71,7 @@ class Benchmark : CliktCommand(help = "Run the benchmark suite", name = "benchma
         for (job in channel) {
             send(
                 FilesToArchive(
-                    LongRange(0, number)
+                    LongRange(1, number)
                         .map { file ->
                             makeFileToArchive(job, file, timestamp, itemSize)
                         }.toList()
